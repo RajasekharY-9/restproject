@@ -1,0 +1,99 @@
+package com.iny.restproject.repo;
+
+import com.iny.restproject.dto.DirectionDTO;
+import com.iny.restproject.dto.UserRequestDTO;
+import com.iny.restproject.entity.Directions;
+import com.iny.restproject.entity.User;
+import com.iny.restproject.repo.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+@Transactional
+public class UserServiceImpl implements UserService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Override
+    public void addUser(UserRequestDTO request) throws UserValidationException {
+        // Generate UUID for User entity
+        UUID userPkId = UUID.randomUUID();
+        String userId = request.getUserId();
+
+        // Print generated UUID for debugging
+        System.out.println("Generated UUID for User: " + userPkId);
+
+        // Insert User entity into database
+        String userSql = "INSERT INTO User_data (User_Pk_Id, User_Id) VALUES (?, ?)";
+        jdbcTemplate.update(userSql, userPkId, userId); // Pass userPkId directly without converting to string
+        LocalDateTime currentDateTime = LocalDateTime.now();
+
+        // Insert Directions entities into database
+        for (DirectionDTO directionDTO : request.getDirections()) {
+            UUID directionId = UUID.randomUUID();
+            String directionCycle = directionDTO.getDirectionCycle();
+            String companyCode = directionDTO.getCompanyCode();
+            LocalDateTime createdDateTime = LocalDateTime.now();
+            LocalDateTime updatedDateTime = LocalDateTime.now();
+
+            // Print generated UUID for debugging
+            System.out.println("Generated UUID for Direction: " + directionId);
+
+            String directionSql = "INSERT INTO Directions (Direction_Id, Direction_Cycle, Company_Code, " +
+                    "Created_DateTime, Updated_DateTime, User_Id) VALUES (?, ?, ?, ?, ?, ?)";
+            jdbcTemplate.update(directionSql, directionId, directionCycle, companyCode,
+                    Timestamp.valueOf(createdDateTime), Timestamp.valueOf(updatedDateTime), userPkId); // Pass userPkId directly
+        }
+    }
+
+    @Override
+    public UserRequestDTO getUser(String userId) throws UserValidationException {
+        // Fetch User entity from database
+        String userSql = "SELECT * FROM User_data WHERE User_Id = ? LIMIT 1";
+        User user = jdbcTemplate.queryForObject(userSql, new Object[]{userId}, (rs, rowNum) -> {
+            User u = new User();
+            u.setUserPkId(UUID.fromString(rs.getString("User_Pk_Id")));
+            u.setUserId(rs.getString("User_Id"));
+            return u;
+        });
+
+        if (user != null) {
+            return mapUserToUserRequestDTO(user);
+        } else {
+            throw new UserValidationException("User not found with userId: " + userId);
+        }
+    }
+
+    private UserRequestDTO mapUserToUserRequestDTO(User user) {
+        UserRequestDTO userRequestDTO = new UserRequestDTO();
+        userRequestDTO.setUserId(user.getUserId());
+
+        List<DirectionDTO> directionDTOs = user.getDirections().stream()
+                .map(direction -> {
+                    DirectionDTO directionDTO = new DirectionDTO();
+                    directionDTO.setDirectionId(direction.getDirectionId());
+                    directionDTO.setDirectionCycle(direction.getDirectionCycle());
+                    directionDTO.setCompanyCode(direction.getCompanyCode());
+                    directionDTO.setCreatedDateTime(direction.getCreatedDateTime());
+                    directionDTO.setUpdatedDateTime(direction.getUpdatedDateTime());
+                    return directionDTO;
+                })
+                .collect(Collectors.toList());
+
+        userRequestDTO.setDirections(directionDTOs);
+        return userRequestDTO;
+    }
+}
